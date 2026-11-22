@@ -95,7 +95,12 @@ input{width:100%;min-height:54px;border-radius:16px;border:1px solid var(--edge)
 .fig{flex:1;border-radius:20px;background:rgba(255,255,255,.06);border:1px solid var(--edge);padding:8px 6px 10px;text-align:center;cursor:pointer;color:var(--ink);font:inherit;transition:background .2s,border-color .2s}
 .fig[aria-pressed=true]{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.6)}
 .fig img{height:130px;width:100%;object-fit:cover;border-radius:14px;margin:0 auto 6px}
-.fig b{display:block;font-size:15px;font-weight:600}
+.fig b,.fig2 b{display:block;font-size:15px;font-weight:600}
+.fig2{flex:1;border-radius:20px;background:rgba(255,255,255,.06);border:1px solid var(--edge);padding:8px 6px 10px;text-align:center;cursor:pointer;color:var(--ink);font:inherit;transition:background .2s,border-color .2s,opacity .2s}
+.fig2[aria-pressed=true]{background:rgba(212,245,60,.16);border-color:var(--lime)}
+.fig2:disabled{opacity:.45;cursor:default}
+.fig2 img{height:130px;width:100%;object-fit:cover;border-radius:14px;margin:0 auto 6px;background:#ddd}
+.fig2 small{display:block;color:var(--dim);font-size:12px}
 .fig small{display:block;color:var(--dim);font-size:12px;line-height:1.3}
 .npc{display:flex;align-items:center;gap:10px;margin-top:10px;font-size:13px;color:var(--dim)}
 .npc img{width:34px;height:34px;border-radius:50%;object-fit:cover}
@@ -173,6 +178,16 @@ input{width:100%;min-height:54px;border-radius:16px;border:1px solid var(--edge)
       <button class="btn" id="bCopy">Copy code</button>
       <div class="status" id="hostStatus">Connecting…</div>
       <button class="btn" id="bHostCancel">Cancel</button>
+    </div>
+    <div data-v="pick" hidden>
+      <h2>Choose your character</h2>
+      <p>You're both in. Whoever taps first gets that character; the other plays the other one.</p>
+      <div class="figs" id="pickFigs">
+        <button class="fig2" data-pick="0" aria-pressed="false"><img alt="Pookie"><b>Pookie</b><small>Tap to pick</small></button>
+        <button class="fig2" data-pick="1" aria-pressed="false"><img alt="Joy"><b>Joy</b><small>Tap to pick</small></button>
+      </div>
+      <div class="status" id="pickStatus"></div>
+      <button class="btn" id="bPickLeave">Leave room</button>
     </div>
     <div data-v="join" hidden>
       <h2>Join a room</h2>
@@ -4546,18 +4561,19 @@ function speakerImg(k,e){const n=MODEL[k];return(PORT[n]&&(PORT[n][e]||PORT[n].n
 function applyLang(){$('cap').querySelector('b').textContent=tx('cap');$('skip').textContent=tx('skip');$('lang').textContent=lang==='hi'?'Hinglish':'हिंदी';$('lang').setAttribute('lang',lang==='hi'?'en':'hi');
   document.body.classList.toggle('deva',lang==='hi');if(ST.on&&ST.stage==='talk')showLine(true)}
 $('lang').onclick=e=>{e.stopPropagation();lang=lang==='hi'?'hing':'hi';try{localStorage.setItem('ah-lang',lang)}catch(_){}applyLang()};
-function startStory(){for(const n in CHARS)CHARS[n].ghost(false);audio();hideMenu();G.mode=null;G.phase='idle';resetScene(true);applyLang();
-  Object.assign(ST,{on:true,stage:'intro',t:0,i:0,typed:0,photos:[]});$('story').hidden=false;$('dlg').hidden=true;$('cap').style.opacity=1;}
+function startStory(online){for(const n in CHARS)CHARS[n].ghost(false);audio();hideMenu();G.mode=null;G.phase='idle';resetScene(true);applyLang();
+  Object.assign(ST,{on:true,stage:'intro',t:0,i:0,typed:0,photos:[],online:!!online});$('story').hidden=false;$('dlg').hidden=true;$('cap').style.opacity=1;}
 function showLine(keep){const L=LINES[ST.i],me=(L.s==='P'&&sel===0)||(L.s==='J'&&sel===1);if(!keep)ST.typed=0;
   $('dlg').hidden=false;$('dlg').querySelector('img').src=speakerImg(L.s,L.e);
   const b=$('dlg').querySelector('b');b.textContent=NAMES[L.s]+(me?tx('you'):'');b.className=L.s==='J'?'p2':L.s==='Sm'?'p3':'';
   $('dlg').querySelector('small').textContent=ST.i===LINES.length-1?tx('go'):tx('next');if(keep)$('dlg').querySelector('p').textContent=L[lang].slice(0,Math.floor(ST.typed));}
-function storyNext(){
+function storyNext(fromNet){
   if(!ST.on)return;audio();
+  if(ST.online&&net.role==='guest'&&!fromNet){const L=ST.stage==='talk'?LINES[ST.i]:null;if(L&&ST.typed<L[lang].length){ST.typed=L[lang].length;return}net.next++;return}
   if(ST.stage==='intro'){ST.stage='talk';ST.t=0;ST.i=0;$('cap').style.opacity=0;showLine();ST.cut=true;return}
   if(ST.stage!=='talk')return;
-  const L=LINES[ST.i];if(ST.typed<L[lang].length){ST.typed=L[lang].length;return}
-  if(ST.t<minT(L.act))return;
+  const L=LINES[ST.i];if(fromNet)ST.typed=L[lang].length;if(ST.typed<L[lang].length){ST.typed=L[lang].length;return}
+  if(ST.t<minT(L.act)){if(fromNet)ST.pend=true;return}
   settle(L.act);
   if(ST.i<LINES.length-1){const pc=LINES[ST.i].cam,ps=LINES[ST.i].s;ST.i++;ST.t=0;ST.fx={};showLine();sfx('blip');const L2=LINES[ST.i];if(L2.cam!==pc||(L2.cam==='single'&&L2.s!==ps))ST.cut=true}else{beginWalk();ST.cut=true}
 }
@@ -4574,7 +4590,7 @@ function beginWalk(){
   ST.stage='walk';ST.t=0;$('dlg').hidden=true;const A=ST.A,P=ST.props,r=roles();
   for(const a of[A.P,A.J,A.Sm]){for(const sd of['R','L']){const h=a.hold[sd];if(h&&h!=='P_phone'){if(HOME[h])P[h]={at:HOME[h]};a.hold[sd]=null}}a.expr='happy';a.look=null}
   P.P_rose=null;P.P_bag=null;A.P.hold.L='P_bag';A.Sm.hold.R='P_phone';
-  const end=m=>m===r.me?ZEND:-ZEND,sx=TW/2+.38;
+  const flip=ST.online&&net.role==='guest',end=m=>((m===r.me)!==flip)?ZEND:-ZEND,sx=TW/2+.38;
   A.P.path=[[-8.95,.98],[-7.4,1.05],[-4.6,.8],[-3.0,.6],[-.9,end('Pookie')],[0,end('Pookie')]];
   A.Sm.path=[[-8.95,-.98],[-7.6,-.95],[-4.8,.3],[-3.0,.4],[-.5,.55],[sx,.25]];
   A.J.path=[[-7.3,-.55],[-4.7,.45],[-3.0,.5],[-.9,end('Joy')],[0,end('Joy')]];
@@ -4582,9 +4598,10 @@ function beginWalk(){
 }
 function endStory(){
   ST.on=false;$('story').hidden=true;$('dlg').hidden=true;
+  if(ST.online){if(net.role==='host')enterOnlineMatch(net.lock[0]==='h'?0:1);return}
   G.mode='cpu';G.chars=[sel,1-sel];resetMatch();pose[0].x=0;pose[1].x=0;ST.cut=true;npc.reset();
 }
-function skipStory(){if(!ST.on)return;const f=$('fade');f.style.opacity=1;setTimeout(()=>{endStory();f.style.opacity=0},350)}
+function skipStory(){if(!ST.on)return;if(ST.online&&net.role==='guest'){net.skip++;return}const f=$('fade');f.style.opacity=1;setTimeout(()=>{endStory();f.style.opacity=0},350)}
 $('skip').onclick=skipStory;$('dlg').onclick=storyNext;
 
 // ---- locomotion + base poses ----
@@ -4607,7 +4624,8 @@ function standBase(a,k,t){const R=RL(a);a.feet=[tp(R,[-.105,.096,0]),tp(R,[.105,
 const headOf=a=>a.head||[a.x,1.35,a.z];
 function storyUpdate(dt,now){
   ST.t+=dt;const A=ST.A,P=ST.props,t=ST.t,k=1-Math.exp(-dt*8),tt=now;
-  if(ST.stage==='intro'&&t>3.4)storyNext();
+  if(ST.stage==='intro'&&t>3.4&&!(ST.online&&net.role==='guest'))storyNext();
+  if(ST.pend&&ST.stage==='talk'&&ST.t>=minT(LINES[ST.i].act)){ST.pend=false;storyNext(true)}
   const L=ST.stage==='talk'?LINES[ST.i]:null,act=L?L.act:'';
   if(L){const full=L[lang];if(ST.typed<full.length)ST.typed=Math.min(full.length,ST.typed+dt*(lang==='hi'?32:40));const s2=full.slice(0,Math.floor(ST.typed)),pe=$('dlg').querySelector('p');if(pe.textContent!==s2)pe.textContent=s2}
   // base poses
@@ -4922,7 +4940,7 @@ function hud(dt){
   ctr.hidden=!t;ctr.className=G.phase==='goal'?'goal':G.phase==='cine'?'pow':'';if(t){ctr.querySelector('b').textContent=t;ctr.querySelector('small').textContent=s}
 }
 // ================= Online: direct peer-to-peer rooms + claude.ai room capability =================
-const net={lobbyP:null,nr:null,role:null,code:'',me:null,opp:null,oppSeen:0,hp:null,recvAt:0,local:null,override:0,hitId:0,hit:null,lastHit:0,block:0,rq:0,lastRq:0,lag:false};
+const net={stage:null,pick:null,pickT:0,lock:[null,null],next:0,lastNext:0,skip:0,lastSkip:0,lobbyP:null,nr:null,role:null,code:'',me:null,opp:null,oppSeen:0,hp:null,recvAt:0,local:null,override:0,hitId:0,hit:null,lastHit:0,block:0,rq:0,lastRq:0,lag:false};
 function getLobby(){
   if(net.lobbyP)return net.lobbyP;
   return net.lobbyP=new Promise(res=>{let n=0;const tick=()=>{
@@ -4944,6 +4962,38 @@ function p2pRoom(id){return new Promise(res=>{if(!window.Peer){res(null);return}
   setTimeout(()=>{if(!done){done=true;try{pr.destroy()}catch(e){}res(null)}},9000)})}
 function p2pConnect(R,hostId){return new Promise(res=>{let c;try{c=R.peer.connect(hostId,{serialization:'json'})}catch(e){res(false);return}
   let ok=false;c.on('open',()=>{ok=true;R.add(c);res(true)});c.on('error',()=>{if(!ok)res(false)});R.peer.on('error',e=>{if(!ok&&e&&e.type==='peer-unavailable')res(false)});setTimeout(()=>{if(!ok)res(false)},7000)})}
+// ---- relay rooms: a tiny MQTT-over-WebSocket client on public brokers; works on any network (mobile data, office Wi-Fi) ----
+const BROKERS=['wss://broker.emqx.io:8084/mqtt','wss://broker.hivemq.com:8884/mqtt','wss://test.mosquitto.org:8081/mqtt'];
+const enc=new TextEncoder(),dec=new TextDecoder();
+function mqLen(n){const o=[];do{let b=n%128;n=Math.floor(n/128);if(n>0)b|=128;o.push(b)}while(n>0);return o}
+function mqStr(s){const b=enc.encode(s);return[b.length>>8,b.length&255,...b]}
+function mqPkt(t,body){return new Uint8Array([t,...mqLen(body.length),...body])}
+function mqConnect(url){return new Promise(res=>{let ws,done=false;const fin=v=>{if(!done){done=true;res(v)}};
+  try{ws=new WebSocket(url,['mqtt'])}catch(e){fin(null);return}ws.binaryType='arraybuffer';
+  const id='ah'+Math.random().toString(36).slice(2,10);let buf=new Uint8Array(0),ping=0;
+  const C={ws,id,url,subs:[],onmsg:null,ok:false,
+    pub(topic,str){if(ws.readyState!==1)return;const t=mqStr(topic),p=enc.encode(str);try{ws.send(mqPkt(0x30,[...t,...p]))}catch(e){}},
+    sub(topic){if(ws.readyState!==1)return;try{ws.send(mqPkt(0x82,[0,1,...mqStr(topic),0]))}catch(e){}},
+    close(){clearInterval(ping);try{ws.close()}catch(e){}}};
+  ws.onopen=()=>{ws.send(mqPkt(0x10,[...mqStr('MQTT'),4,2,0,30,...mqStr(id)]))};
+  ws.onmessage=ev=>{const d=new Uint8Array(ev.data),nb=new Uint8Array(buf.length+d.length);nb.set(buf);nb.set(d,buf.length);buf=nb;
+    for(;;){if(buf.length<2)break;let m=1,len=0,i=1,b;do{b=buf[i++];len+=(b&127)*m;m*=128}while(b&128&&i<buf.length);if(b&128||buf.length<i+len)break;
+      const type=buf[0]>>4,body=buf.subarray(i,i+len);buf=buf.slice(i+len);
+      if(type===2){if(body[1]===0){C.ok=true;ping=setInterval(()=>{try{ws.send(new Uint8Array([0xC0,0]))}catch(e){}},20000);fin(C)}else fin(null)}
+      else if(type===3){const tl=(body[0]<<8)|body[1],topic=dec.decode(body.subarray(2,2+tl));const payload=dec.decode(body.subarray(2+tl));if(C.onmsg)C.onmsg(topic,payload)}}};
+  ws.onerror=()=>fin(null);ws.onclose=()=>{C.ok=false;fin(null)};setTimeout(()=>{if(!done){try{ws.close()}catch(e){}fin(null)}},6000)})}
+function relayRoom(code,conn){const base='ahnight/v1/'+code.toLowerCase()+'/',others=new Map();
+  const R={kind:'relay',conn,meId:conn.id,pres:{},lastSend:0,
+    peers(){const now=performance.now(),a=[{peer:this.meId,sameTab:true,presence:this.pres}];for(const[k,v]of others)if(now-v.seen<4500)a.push({peer:k,sameTab:false,presence:v.p});return a},
+    presence(o){this.pres=o;const now=performance.now();if(now-this.lastSend>45){this.lastSend=now;conn.pub(base+this.meId,JSON.stringify(o))}return Promise.resolve()},
+    connected(){return conn.ws.readyState===1},leave(){conn.close();return Promise.resolve()}};
+  conn.onmsg=(t,pl)=>{if(!t.startsWith(base))return;const id=t.slice(base.length);if(id===R.meId)return;try{const o=JSON.parse(pl);if(o&&typeof o==='object')others.set(id,{p:o,seen:performance.now()})}catch(e){}};
+  conn.sub(base+'+');return R}
+async function relayHost(code){const cs=await Promise.all(BROKERS.map(mqConnect));return cs.filter(Boolean).map(c=>relayRoom(code,c))}
+async function relayFind(code){// guests try each broker until the host shows up there
+  const cs=await Promise.all(BROKERS.map(mqConnect)),rs=cs.filter(Boolean).map(c=>relayRoom(code,c));if(!rs.length)return null;
+  for(let i=0;i<24;i++){for(const r of rs){r.presence({r:'g',hello:1});const h=r.peers().find(p=>!p.sameTab&&p.presence&&p.presence.r==='h');if(h){for(const o of rs)if(o!==r)o.leave();return r}}await sleep(250)}
+  for(const r of rs)r.leave();return null}
 // the host listens on every path at once; whichever way the guest arrives works
 function multiRoom(list){return{kind:'multi',list,
   peers(){const out=[];let me=false;for(const r of list)for(const p of r.peers()){if(p.sameTab){if(me)continue;me=true}out.push(p)}return out},
@@ -4955,15 +5005,15 @@ const genCode=()=>Array.from({length:5},()=>ALPHA[Math.floor(Math.random()*ALPHA
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const pid=code=>'ahnight-'+code.toLowerCase();
 const NOROOM='Couldn’t open an online room. Check your internet connection and try again.';
-async function leaveRoom(){const r=net.nr;net.nr=null;net.role=null;net.opp=null;net.hp=null;if(r){try{await r.leave()}catch(e){}}}
+async function leaveRoom(){const r=net.nr;net.nr=null;net.role=null;net.opp=null;net.hp=null;net.stage=null;net.pick=null;net.lock=[null,null];if(r){try{await r.leave()}catch(e){}}}
 async function createRoom(){
   show('host');$('codeOut').textContent='-----';setStatus('hostStatus','Connecting…');
   let list=[],code='';
   for(let i=0;i<4&&!list.length;i++){
     code=genCode();
-    const[p2p,lobby]=await Promise.all([p2pRoom(pid(code)),getLobby()]);
-    if(p2p==='taken')continue;
-    if(p2p)list.push(p2p);
+    const[p2p,lobby,relays]=await Promise.all([p2pRoom(pid(code)),getLobby(),relayHost(code)]);
+    if(p2p==='taken'){relays.forEach(r=>r.leave());continue}
+    list.push(...relays);if(p2p)list.push(p2p);
     if(lobby){try{const nr=await lobby.join('ah-'+code.toLowerCase());await sleep(700);
       if(nr.peers().some(p=>!p.sameTab&&p.presence&&p.presence.r==='h')){try{await nr.leave()}catch(e){}if(p2p){p2p.leave();list=[]}continue}list.push(nr)}catch(e){}}
   }
@@ -4972,15 +5022,14 @@ async function createRoom(){
   if(menuView!=='host'){nr.leave();return}
   net.nr=nr;net.role='host';net.code=code;net.opp=null;net.lastHit=0;net.lastRq=0;
   $('codeOut').textContent=code;setStatus('hostStatus','Waiting for your opponent. They open this game on any phone or computer and tap “Join with code”.');
-  G.mode='host';G.chars=[sel,1-sel];resetMatch();G.phase='wait';
+  G.mode=null;G.phase='idle';net.stage='wait';
 }
 async function joinRoom(code){
   code=code.toUpperCase().replace(/[^A-Z0-9]/g,'');
   if(code.length!==5){setStatus('joinStatus','Codes are 5 characters.',true);return}
   $('bJoin').disabled=true;setStatus('joinStatus','Connecting…');
-  let nr=null;
-  const R=await p2pRoom(null);
-  if(R&&R!=='taken'){if(await p2pConnect(R,pid(code)))nr=R;else R.leave()}
+  let nr=await relayFind(code);
+  if(!nr){const R=await p2pRoom(null);if(R&&R!=='taken'){if(await p2pConnect(R,pid(code)))nr=R;else R.leave()}}
   if(!nr){const lobby=await getLobby();if(lobby){try{nr=await lobby.join('ah-'+code.toLowerCase())}catch(e){nr=null}}}
   if(!nr){setStatus('joinStatus','No room with that code. Check it with your friend and try again.',true);$('bJoin').disabled=false;return}
   net.nr=nr;net.role='guest';net.code=code;net.hitId=0;net.hit=null;net.rq=0;
@@ -4994,15 +5043,11 @@ async function joinRoom(code){
   await sleep(600);host=nr.peers().find(p=>p.peer===host.peer)||host;
   if(host.presence.gp&&host.presence.gp!==net.me){setStatus('joinStatus','That room already has two players.',true);await leaveRoom();return}
   net.opp=host.peer;net.oppSeen=performance.now();net.hp=null;net.override=0;
-  G.mode='guest';const hc=host.presence.ch===1?1:0;G.chars=[hc,1-hc];resetMatch();G.phase='wait';cam.init=false;ST.cut=true;
-  hideMenu();
+  enterPick();
 }
 function hostNet(now){
   const nr=net.nr;if(!nr)return;const ps=nr.peers();
-  if(!net.opp){
-    const g=ps.find(p=>!p.sameTab&&p.presence&&p.presence.r==='g');
-    if(g){net.opp=g.peer;net.oppSeen=now;hideMenu();resetMatch();cam.init=false;net.lastHit=(g.presence.h&&g.presence.h[0])||0;net.lastRq=g.presence.rq||0}
-  }else{
+  if(!net.opp){return}else{
     const g=ps.find(p=>p.peer===net.opp);
     if(g){net.oppSeen=now;const q=g.presence;
       if(Array.isArray(q.m)){G.m[1].tx=+q.m[0]||0;G.m[1].ty=+q.m[1]||0;G.m[1].vmax=5200}
@@ -5012,7 +5057,7 @@ function hostNet(now){
     }else if(now-net.oppSeen>3000){oppLeft();return}
   }
   const p=G.puck,m=G.m[0];
-  Promise.resolve(nr.presence({r:'h',ch:G.chars[0],gp:net.opp||null,ph:G.phase,pt:Math.round(G.pt*10),s:G.score,w:G.winner,
+  Promise.resolve(nr.presence({r:'h',stg:'match',ch:G.chars[0],gp:net.opp||null,ph:G.phase,pt:Math.round(G.pt*10),s:G.score,w:G.winner,
     p:[Math.round(p.x),Math.round(p.y),Math.round(p.vx),Math.round(p.vy)],m:[Math.round(m.x),Math.round(m.y)]})).catch(()=>{});
   net.lag=!nr.connected();
 }
@@ -5050,8 +5095,56 @@ function guestNet(now,dt){
   if(G.phase==='over'&&$('msg').hidden)showOver();
 }
 function claimHit(p){net.hitId++;net.hit=[net.hitId,Math.round(p.x),Math.round(p.y),Math.round(p.vx),Math.round(p.vy)];net.override=performance.now()+240;sfx('hit')}
-function oppLeft(){const r=net.role;leaveRoom();G.mode=null;G.phase='idle';msgBox(r==='host'?'Opponent left':'Host left','The match ended because the other player disconnected.',[['Back to menu',toMenu,1]])}
+function oppLeft(){const r=net.role;if(ST.on){ST.on=false;ST.online=false;$('story').hidden=true;$('dlg').hidden=true}leaveRoom();G.mode=null;G.phase='idle';msgBox(r==='host'?'Opponent left':'Host left','The match ended because the other player disconnected.',[['Back to menu',toMenu,1]])}
 
+
+// ================= Online lobby: first-come character lock, then the story together =================
+const OWN=['h','g'];
+function enterPick(){net.stage='pick';net.pick=null;net.pickT=0;net.lock=[null,null];show('pick');renderPick()}
+function myTag(){return net.role==='host'?'h':'g'}
+function renderPick(){document.querySelectorAll('#pickFigs .fig2').forEach(b=>{const c=+b.dataset.pick,o=net.lock[c],mine=o===myTag(),theirs=o&&!mine;
+    const n=CH[c].model;if(PORT[n])b.querySelector('img').src=PORT[n].body;
+    b.setAttribute('aria-pressed',mine);b.disabled=!!theirs||(net.pick!==null&&!mine);b.querySelector('small').textContent=mine?'You':theirs?'Taken by your friend':'Tap to pick'});
+  const both=net.lock[0]&&net.lock[1];setStatus('pickStatus',both?'Starting the night…':net.pick!==null?'Waiting for your friend to pick…':'First to tap gets the character.')}
+document.querySelectorAll('#pickFigs .fig2').forEach(b=>b.onclick=()=>{const c=+b.dataset.pick;if(net.pick!==null||net.lock[c])return;audio();net.pick=c;net.pickT=Date.now();sfx('blip');
+  if(net.role==='host'&&!net.lock[c])net.lock[c]='h';renderPick()});
+$('bPickLeave').onclick=()=>{leaveRoom();show('home')};
+function lobbyNet(now){const nr=net.nr;if(!nr)return;const ps=nr.peers(),host=net.role==='host';
+  const opp=net.opp?ps.find(p=>p.peer===net.opp):ps.find(p=>!p.sameTab&&p.presence&&p.presence.r===(host?'g':'h'));
+  if(!opp){if(net.opp&&now-net.oppSeen>4500){oppLeft();return}}
+  else{net.oppSeen=now;const q=opp.presence||{};
+    if(host){
+      if(!net.opp){net.opp=opp.peer;enterPick()}
+      // resolve picks: whoever picked first keeps the character
+      if(net.stage==='pick'&&Number.isInteger(q.pick)&&(q.pick===0||q.pick===1)){const c=q.pick;
+        if(!net.lock[c]&&!(net.pick===c&&net.pickT&&net.pickT<=(q.pt||Infinity)))net.lock[c]='g'}
+      if(net.stage==='pick'&&net.lock[0]&&net.lock[1]&&!net.goT)net.goT=now+900;
+      if(net.goT&&now>net.goT){net.goT=0;startOnlineStory()}
+      if((q.next|0)>net.lastNext){net.lastNext=q.next|0;if(ST.on&&ST.stage!=='walk')storyNext(true)}
+      if((q.skip|0)>net.lastSkip){net.lastSkip=q.skip|0;if(ST.on)skipStory()}
+    }else{
+      if(Array.isArray(q.lock))net.lock=[OWN.includes(q.lock[0])?q.lock[0]:null,OWN.includes(q.lock[1])?q.lock[1]:null];
+      if(net.pick!==null&&net.lock[net.pick]==='h'){net.pick=null}
+      if(q.stg==='story'&&net.stage==='pick'){startOnlineStory()}
+      if(net.stage==='story'&&ST.on)followStory(q);
+      if(q.stg==='match'&&net.stage!=='match'){if(ST.on){ST.on=false;$('story').hidden=true;$('dlg').hidden=true}enterOnlineMatch(q.ch)}
+    }
+    if(net.stage==='pick')renderPick();
+  }
+  const o={r:host?'h':'g',stg:net.stage,pick:net.pick,pt:net.pickT,next:net.next,skip:net.skip};
+  if(host)Object.assign(o,{lock:net.lock,si:ST.i,ss:ST.stage,ch:net.lock[0]==='h'?0:1,gp:net.opp||null});
+  Promise.resolve(nr.presence(o)).catch(()=>{});
+}
+function myChar(){return net.lock[0]===myTag()?0:1}
+function startOnlineStory(){net.stage='story';sel=myChar();markSel();hideMenu();startStory(true)}
+function followStory(q){// the host drives the story; the guest follows line by line
+  if(q.ss==='talk'&&(ST.stage!=='talk'||q.si!==ST.i)&&Number.isInteger(q.si)){
+    if(ST.stage==='talk'){for(let i=ST.i;i<q.si;i++)settle(LINES[i].act)}else $('cap').style.opacity=0;
+    ST.stage='talk';ST.i=clamp(q.si,0,LINES.length-1);ST.t=0;ST.fx={};showLine();ST.cut=true;sfx('blip')}
+  if(q.ss==='walk'&&ST.stage!=='walk'){if(ST.stage==='talk')for(let i=ST.i;i<LINES.length;i++)settle(LINES[i].act);beginWalk();ST.cut=true}}
+function enterOnlineMatch(hostCh){net.stage='match';const hc=hostCh===1?1:0;G.chars=[hc,1-hc];
+  if(net.role==='host'){G.mode='host';resetMatch()}else{G.mode='guest';resetMatch();G.phase='wait'}
+  pose[0].x=0;pose[1].x=0;ST.cut=true;cam.init=false;npc.reset();hideMenu()}
 // ================= Menus =================
 let menuView='home';
 function show(v){menuView=v;$('menu').hidden=false;document.querySelectorAll('#menu [data-v]').forEach(d=>d.hidden=d.dataset.v!==v)}
@@ -5061,7 +5154,7 @@ function msgBox(t,p,btns,img,roll){$('msgT').textContent=t;$('msgP').textContent
   const r=$('roll');r.innerHTML='';$('rollh').hidden=!(roll&&roll.length);(roll||[]).slice().reverse().forEach(u=>{const im=document.createElement('img');im.src=u;im.alt='Photo by Samsung';r.appendChild(im)});
   btns.forEach(([l,fn,pri])=>{const x=document.createElement('button');x.className='btn'+(pri?' pri':'');x.textContent=l;x.onclick=fn;b.appendChild(x)});$('msg').hidden=false}
 function hideMsg(){$('msg').hidden=true;G.paused=false}
-function toMenu(){for(const n in CHARS)CHARS[n].ghost(false);hideMsg();leaveRoom();G.mode=null;G.phase='idle';ST.on=false;$('story').hidden=true;resetScene(false);show('home')}
+function toMenu(){ST.online=false;for(const n in CHARS)CHARS[n].ghost(false);hideMsg();leaveRoom();G.mode=null;G.phase='idle';ST.on=false;$('story').hidden=true;resetScene(false);show('home')}
 function start(mode){audio();G.mode=mode;G.chars=[sel,1-sel];resetMatch();cam.init=false;ST.cut=true;npc.t=6;resetScene(false);hideMenu()}
 function showOver(){
   const bi=mySide(),won=G.winner===bi,wc=G.chars[G.winner];
@@ -5092,6 +5185,7 @@ let last=performance.now();
 function frame(now){
   const dt=Math.min(.033,(now-last)/1000);last=now;FR.dt=dt;FR.now=now/1000;
   try{
+    if(net.role&&net.stage!=='match')lobbyNet(now);
     if(G.mode&&!G.paused){
       if(G.mode==='guest')guestNet(now,dt);
       else{const was=G.phase;
